@@ -205,3 +205,32 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Project Specific Data (IMPORTANT) ---
+data_raw/
+data_processed/
+*.TIF
+*.tif
+*.nc
+*.SEN3
+# ==========================================
+# UHI Project Specific Data (IMPORTANT)
+# ==========================================
+# Ignore raw and processed data folders
+data_raw/
+data_processed/
+data/
+
+# Ignore specific satellite and spatial file formats
+*.tif
+*.TIF
+*.nc
+*.SEN3
+*.zip
+*.tar
+*.gz
+
+# Ignore local visualization outputs
+*.png
+*.jpg
+*.pdf
