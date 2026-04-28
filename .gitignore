@@ -234,3 +234,9 @@ data/
 *.png
 *.jpg
 *.pdf
+
+
+# AI Training files
+*.npy
+*.pth
+data_processed/patches/
