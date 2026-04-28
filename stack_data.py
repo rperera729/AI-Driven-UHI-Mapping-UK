@@ -27,6 +27,6 @@ def create_stack(date_str, ls_b10, ls_b4, ls_b5, s3_nc, dem_path, output_dir):
     # 5. Stack and Save
     stack = xr.concat([ls_lst_c, s3_aligned_c, ndvi, dem], dim="band")
     stack.rio.to_raster(os.path.join(output_dir, f"Stack_{date_str}.tif"))
-    print(f" Saved Stacked Image for {date_str}")
+    print(f"git add find_matches.py Saved Stacked Image for {date_str}")
 
 # Usage: Run this for your 6 dates!
