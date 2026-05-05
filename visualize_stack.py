@@ -1,29 +1,35 @@
 import rioxarray
 import matplotlib.pyplot as plt
-import os
 
-# Path to the newly generated calibrated stack
-stack_path = r"D:\UHI_Project\data_processed\UHI_Stack_20230805.tif"
+STACK_PATH = r"D:\UHI_Project\data_processed\UHI_Stack_20230805.tif"
 
-if os.path.exists(stack_path):
-    stack = rioxarray.open_rasterio(stack_path)
+def plot_layer(ax, data, title, cmap):
+    im = ax.imshow(data, cmap=cmap)
+    ax.set_title(title)
+    ax.axis("off")
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
-    titles = ['Landsat LST (C)', 'Sentinel LST (C)', 'NDVI (Veg)', 'DEM (Elev)']
-    cmaps = ['magma', 'magma', 'YlGn', 'terrain']
-    
-    # These limits force the display to show the real data range
-    # LST: 15-45C | NDVI: 0-0.6 | DEM: 0-150m
-    limits = [(15, 45), (15, 45), (0, 0.6), (0, 150)]
+def visualize():
+    ds = rioxarray.open_rasterio(STACK_PATH)
 
-    for i in range(4):
-        layer = stack.sel(band=i+1)
-        layer.plot(ax=axes[i], cmap=cmaps[i], add_labels=False, 
-                   vmin=limits[i][0], vmax=limits[i][1])
-        axes[i].set_title(titles[i])
-        axes[i].axis('off')
+    print("Stack shape:", ds.shape)
+
+    landsat = ds[0].values
+    sentinel = ds[1].values
+    ndvi = ds[2].values
+    dem = ds[3].values
+    mask = ds[4].values
+
+    fig, axes = plt.subplots(1, 5, figsize=(20, 5))
+
+    plot_layer(axes[0], landsat, "Landsat", "inferno")
+    plot_layer(axes[1], sentinel, "Sentinel", "inferno")
+    plot_layer(axes[2], ndvi, "NDVI", "YlGn")
+    plot_layer(axes[3], dem, "DEM", "terrain")
+    plot_layer(axes[4], mask, "Mask", "gray")
 
     plt.tight_layout()
     plt.show()
-else:
-    print(f"File not found. Please run batch_stacker.py first.")
+
+if __name__ == "__main__":
+    visualize()
