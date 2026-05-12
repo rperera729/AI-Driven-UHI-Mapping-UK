@@ -23,9 +23,9 @@ def find_matches():
         if match:
             date_str = match.group(1)
             
-            # 2. Search for the Sentinel-3 folder matching this date
-            s3_pattern = os.path.join(SENTINEL_ROOT, f"*{date_str}*.SEN3")
-            s3_matches = glob.glob(s3_pattern)
+            # 2. Search for the Sentinel-3 folder matching this date recursively
+            s3_pattern = os.path.join(SENTINEL_ROOT, "**", f"*{date_str}*.SEN3")
+            s3_matches = glob.glob(s3_pattern, recursive=True)
             
             if s3_matches:
                 print(f" MATCH FOUND: {date_str}")

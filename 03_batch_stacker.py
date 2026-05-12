@@ -6,33 +6,70 @@ import rioxarray
 from rasterio.enums import Resampling
 from scipy.interpolate import griddata
 import pyproj
+from rioxarray.merge import merge_arrays
 
 # ---------------- CONFIG ---------------- #
 BASE_DIR = r"D:\UHI_Project\data_raw"
 OUTPUT_DIR = r"D:\UHI_Project\data_processed"
 DEM_PATH = os.path.join(BASE_DIR, "srtm_dem_30m.tif")
 
-MATCHED_DATES = [
-    "20230805",
-    "20230603",
-    "20240629",
-    "20240823",
-    "20250710"
-]
+MATCHED_DATES = ["20230616", "20230622", "20230702", "20230811", "20230817", "20230826", "20240601", "20240602", "20240608", "20240617", "20240626", "20240811", "20240820", "20240829", "20250619", "20250620", "20250629", "20250707", "20250713", "20250815", "20250824", "20250831"]
 
-GLA_BBOX = (503000, 155000, 560000, 201000)
+
+# GLA_BBOX = (503000, 155000, 560000, 201000)
+# Glasgow City RegionBounding Box (EPSG:27700)
+GLA_BBOX = (218808, 600859, 312369, 690979)
 # ---------------------------------------- #
+
+# --- MASTER GRID SETUP ---
+# Calculate a common 30m grid aligned to the bounding box so all mosaiced tiles snap perfectly without grid gaps.
+_minx, _miny, _maxx, _maxy = GLA_BBOX
+_minx = (_minx // 30) * 30
+_miny = (_miny // 30) * 30
+_maxx = (_maxx // 30 + 1) * 30
+_maxy = (_maxy // 30 + 1) * 30
+
+_x = np.arange(_minx + 15, _maxx, 30)
+_y = np.arange(_maxy - 15, _miny, -30)
+
+MASTER_GRID = xr.DataArray(
+    np.zeros((1, len(_y), len(_x)), dtype=np.float32),
+    coords={'band': [1], 'y': _y, 'x': _x},
+    dims=['band', 'y', 'x']
+).rio.write_crs('EPSG:27700')
 
 
 # ---------------- NORMALISATION ---------------- #
 def simple_norm(x):
     vals = x.values.astype("float32")
+    
+    # Check if the array is entirely NaNs to avoid the "All-NaN slice" warning
+    if np.isnan(vals).all():
+        return xr.zeros_like(x)
+        
     v_min, v_max = np.nanpercentile(vals, 2), np.nanpercentile(vals, 98)
 
     if not np.isfinite(v_min) or v_max <= v_min:
         return xr.zeros_like(x)
 
     return ((x - v_min) / (v_max - v_min)).clip(0, 1)
+
+
+# ---------------- MOSAIC & SNAP ---------------- #
+def mosaic_files(file_list, match_xr=MASTER_GRID, resampling=Resampling.nearest):
+    arrays = []
+    for fp in file_list:
+        try:
+            da = rioxarray.open_rasterio(fp)
+            da = da.rio.reproject_match(match_xr, resampling=resampling)
+            arrays.append(da)
+        except Exception:
+            pass # Skip if outside bbox or other errors
+            
+    if not arrays:
+        raise ValueError("No valid data found in bounding box.")
+        
+    return merge_arrays(arrays) if len(arrays) > 1 else arrays[0]
 
 
 # ---------------- SAFE TIFF LOADER ---------------- #
@@ -94,29 +131,27 @@ def run_batch_stacking():
             ls_b4  = glob.glob(f"{BASE_DIR}/landsat/**/*{date}*_SR_B4.TIF", recursive=True)
             ls_b5  = glob.glob(f"{BASE_DIR}/landsat/**/*{date}*_SR_B5.TIF", recursive=True)
             ls_qa  = glob.glob(f"{BASE_DIR}/landsat/**/*{date}*_QA_PIXEL.TIF", recursive=True)
-            s3_dir = glob.glob(f"{BASE_DIR}/sentinel/*{date}*.SEN3")
+            s3_dir = glob.glob(f"{BASE_DIR}/sentinel/**/*{date}*.SEN3", recursive=True)
 
             if not (ls_b10 and ls_b4 and ls_b5 and ls_qa and s3_dir):
                 print("[SKIP] Missing required files")
                 continue
 
             # ---------- LANDSAT LST ---------- #
-            ls = safe_open_tif(ls_b10[0]) \
-                .rio.reproject("EPSG:27700") \
-                .rio.clip_box(*GLA_BBOX)
+            ls = mosaic_files(ls_b10)
 
             ls_c = (ls.where(ls > 0) * 0.00341802 + 149.0) - 273.15
 
             # ---------- CLOUD MASK ---------- #
-            qa = safe_open_tif(ls_qa[0], match=ls).astype("uint16")
+            qa = mosaic_files(ls_qa).astype("uint16")
             cloud = (qa & (1 << 3)) > 0
             mask = (~cloud).astype(int)
 
             ls_c = ls_c.where(mask == 1)
 
             # ---------- NDVI ---------- #
-            red = safe_open_tif(ls_b4[0], match=ls).astype("float32")
-            nir = safe_open_tif(ls_b5[0], match=ls).astype("float32")
+            red = mosaic_files(ls_b4).astype("float32")
+            nir = mosaic_files(ls_b5).astype("float32")
 
             red = red * 0.0000275 - 0.2
             nir = nir * 0.0000275 - 0.2
@@ -166,10 +201,25 @@ def run_batch_stacking():
             def sq(x):
                 return x.squeeze(drop=True)
 
-            norm_ls   = simple_norm(sq(ls_c))
-            norm_s3   = simple_norm(sq(s3_c))
-            norm_ndvi = simple_norm(sq(ndvi))
-            norm_dem  = simple_norm(sq(dem))
+            ls_c_sq = sq(ls_c)
+            s3_c_sq = sq(s3_c)
+            ndvi_sq = sq(ndvi)
+            dem_sq = sq(dem)
+
+            # --- DEBUGGING: Check for empty layers before normalisation ---
+            if np.isnan(ls_c_sq.values).all():
+                print(f"  [WARNING] Date {date}: Landsat LST layer is entirely NaN (empty).")
+            if np.isnan(s3_c_sq.values).all():
+                print(f"  [WARNING] Date {date}: Sentinel LST layer is entirely NaN (empty).")
+            if np.isnan(ndvi_sq.values).all():
+                print(f"  [WARNING] Date {date}: NDVI layer is entirely NaN (empty).")
+            if np.isnan(dem_sq.values).all():
+                print(f"  [WARNING] Date {date}: DEM layer is entirely NaN (empty).")
+                
+            norm_ls   = simple_norm(ls_c_sq)
+            norm_s3   = simple_norm(s3_c_sq)
+            norm_ndvi = simple_norm(ndvi_sq)
+            norm_dem  = simple_norm(dem_sq)
             mask_2d   = sq(mask)
 
             # ---------- STACK (FIXED BAND ISSUE) ---------- #

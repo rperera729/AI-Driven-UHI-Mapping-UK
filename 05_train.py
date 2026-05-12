@@ -32,7 +32,7 @@ class UHIPatchDataset(Dataset):
         return torch.from_numpy(x).float(), torch.from_numpy(y).float()
 
 # 2. TRAINING SETUP
-PATCH_DIR = r"D:\UHI_Project\data_processed\patches"
+PATCH_DIR = r"D:\UHI_Project\data_processed2\patches"
 BATCH_SIZE = 16
 EPOCHS = 20
 LEARNING_RATE = 0.001
