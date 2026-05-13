@@ -1,7 +1,7 @@
 import rioxarray
 import matplotlib.pyplot as plt
 
-STACK_PATH = r"D:\UHI_Project\data_processed\UHI_Stack_20250713.tif"
+STACK_PATH = r"D:\UHI_Project\data_processed\UHI_Stack_20250629.tif"
 
 def plot_layer(ax, data, title, cmap):
     im = ax.imshow(data, cmap=cmap)

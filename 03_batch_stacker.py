@@ -13,7 +13,8 @@ BASE_DIR = r"D:\UHI_Project\data_raw"
 OUTPUT_DIR = r"D:\UHI_Project\data_processed"
 DEM_PATH = os.path.join(BASE_DIR, "srtm_dem_30m.tif")
 
-MATCHED_DATES = ["20230616", "20230622", "20230702", "20230811", "20230817", "20230826", "20240601", "20240602", "20240608", "20240617", "20240626", "20240811", "20240820", "20240829", "20250619", "20250620", "20250629", "20250707", "20250713", "20250815", "20250824", "20250831"]
+MATCHED_DATES = ["20250629"]
+#MATCHED_DATES = ["20230616", "20230702", "20240602", "20250707", "20250824", "20230616", "20240602", "20250707", "20250831", "20230826", "20250815", "20250831", "20230614", "20230817", "20250619", "20230811", "20240829", "20250629", "20230608", "20230811", "20240626", "20240829", "20250629", "20230615", "20240601", "20230615", "20240617", "20240820", "20250620", "20230622", "20240608", "20240811", "20250713"]
 
 
 # GLA_BBOX = (503000, 155000, 560000, 201000)
@@ -145,7 +146,9 @@ def run_batch_stacking():
             # ---------- CLOUD MASK ---------- #
             qa = mosaic_files(ls_qa).astype("uint16")
             cloud = (qa & (1 << 3)) > 0
-            mask = (~cloud).astype(int)
+            
+            # The mask should only be 1 if it's NOT cloudy AND if Landsat actually has data in that pixel
+            mask = ((~cloud) & (ls > 0)).astype(int)
 
             ls_c = ls_c.where(mask == 1)
 
@@ -160,32 +163,57 @@ def run_batch_stacking():
             ndvi = ndvi.clip(-1, 1).where(mask == 1)
 
             # ---------- SENTINEL ---------- #
-            lst, lat, lon = load_sentinel(s3_dir[0])
+            # Combine all available Sentinel-3 scenes for the date
+            lst_vals_list, lat_vals_list, lon_vals_list = [], [], []
+            
+            for s3_folder in s3_dir:
+                try:
+                    temp_lst, temp_lat, temp_lon = load_sentinel(s3_folder)
+                    lst_vals_list.append(temp_lst.values.flatten())
+                    lat_vals_list.append(temp_lat.values.flatten())
+                    lon_vals_list.append(temp_lon.values.flatten())
+                except Exception as e:
+                    print(f"  [WARNING] Error loading Sentinel data from {s3_folder}: {e}")
 
-            lst_vals = lst.values.flatten()
-            lat_vals = lat.values.flatten()
-            lon_vals = lon.values.flatten()
+            if not lst_vals_list:
+                raise ValueError("No valid Sentinel data loaded for this date.")
 
-            valid = np.isfinite(lst_vals) & np.isfinite(lat_vals) & np.isfinite(lon_vals)
+            lst_vals = np.concatenate(lst_vals_list)
+            lat_vals = np.concatenate(lat_vals_list)
+            lon_vals = np.concatenate(lon_vals_list)
+
+            # Create target grid in WGS84
+            lon_grid, lat_grid = np.meshgrid(ls.x.values, ls.y.values)
+            transformer = pyproj.Transformer.from_crs(
+                "EPSG:27700", "EPSG:4326", always_xy=True
+            )
+            lon_t, lat_t = transformer.transform(lon_grid, lat_grid)
+
+            # Dynamically filter Sentinel points using the target grid's bounds (+0.5 deg buffer)
+            # This ensures griddata runs fast and adapts to any GLA_BBOX automatically
+            min_lon, max_lon = lon_t.min() - 0.5, lon_t.max() + 0.5
+            min_lat, max_lat = lat_t.min() - 0.5, lat_t.max() + 0.5
+
+            valid = (
+                np.isfinite(lst_vals) & np.isfinite(lat_vals) & np.isfinite(lon_vals) &
+                (lon_vals >= min_lon) & (lon_vals <= max_lon) &
+                (lat_vals >= min_lat) & (lat_vals <= max_lat)
+            )
 
             lst_vals = lst_vals[valid]
             lat_vals = lat_vals[valid]
             lon_vals = lon_vals[valid]
 
-            lon_grid, lat_grid = np.meshgrid(ls.x.values, ls.y.values)
-
-            transformer = pyproj.Transformer.from_crs(
-                "EPSG:27700", "EPSG:4326", always_xy=True
-            )
-
-            lon_t, lat_t = transformer.transform(lon_grid, lat_grid)
-
-            s3_interp = griddata(
-                (lon_vals, lat_vals),
-                lst_vals,
-                (lon_t, lat_t),
-                method="linear"
-            )
+            if len(lst_vals) == 0:
+                print(f"  [WARNING] Date {date}: Sentinel points do not overlap the target area.")
+                s3_interp = np.full(lon_t.shape, np.nan, dtype=np.float32)
+            else:
+                s3_interp = griddata(
+                    (lon_vals, lat_vals),
+                    lst_vals,
+                    (lon_t, lat_t),
+                    method="linear"
+                )
 
             s3_c = xr.DataArray(
                 s3_interp,
@@ -196,6 +224,8 @@ def run_batch_stacking():
             # ---------- DEM ---------- #
             dem = safe_open_tif(DEM_PATH) \
                 .rio.reproject_match(ls, resampling=Resampling.bilinear)
+                
+            dem = dem.where(mask.squeeze() == 1)
 
             # ---------- NORMALISE ---------- #
             def sq(x):

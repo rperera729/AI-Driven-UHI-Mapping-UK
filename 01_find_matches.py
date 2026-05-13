@@ -14,6 +14,9 @@ def find_matches():
 
     print(f"Found {len(ls_files)} Landsat scenes across all years.\n")
 
+    matches_found = []
+    no_matches = []
+
     for ls_path in ls_files:
         ls_filename = os.path.basename(ls_path)
         
@@ -32,8 +35,16 @@ def find_matches():
                 print(f"   Landsat:  {ls_filename}")
                 print(f"   Sentinel: {os.path.basename(s3_matches[0])}")
                 print("-" * 30)
+                matches_found.append(date_str)
             else:
                 print(f" No Sentinel match for Landsat date: {date_str}")
+                no_matches.append(date_str)
+
+    print("\n" + "=" * 30)
+    matches_str = ", ".join(f'"{m}"' for m in matches_found) if matches_found else "None"
+    no_matches_str = ", ".join(f'"{m}"' for m in no_matches) if no_matches else "None"
+    print(f"ALL MATCHES FOUND: {matches_str}")
+    print(f"No MATCHES: {no_matches_str}")
 
 if __name__ == "__main__":
     find_matches()

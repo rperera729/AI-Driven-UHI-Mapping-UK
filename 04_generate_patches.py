@@ -3,8 +3,8 @@ import numpy as np
 import rioxarray
 
 # --- CONFIGURATION ---
-INPUT_DIR = r"D:\UHI_Project\data_processed2"
-PATCH_DIR = r"D:\UHI_Project\data_processed2\patches"
+INPUT_DIR = r"D:\UHI_Project\data_processed"
+PATCH_DIR = r"D:\UHI_Project\data_processed\patches"
 PATCH_SIZE = 128
 
 def generate_all_patches():

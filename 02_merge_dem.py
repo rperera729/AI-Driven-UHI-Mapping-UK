@@ -1,12 +1,18 @@
 import os
+import glob
 from rasterio.merge import merge
 import rasterio
 
-# 1. List your two DEM tiles
-dem_tiles = [
-    r"D:\UHI_Project\data_raw\n51_e000_1arc_v3.tif",
-    r"D:\UHI_Project\data_raw\n51_w001_1arc_v3.tif" # Update name if different
-]
+# Configuration paths
+DEM_FOLDER = r"D:\UHI_Project\DEM"
+OUTPUT_FOLDER = r"D:\UHI_Project\data_raw"
+OUTPUT_FILENAME = "srtm_dem_30m.tif"
+
+# 1. Find all TIFF tiles in the DEM folder
+dem_tiles = glob.glob(os.path.join(DEM_FOLDER, "*.tif"))
+if not dem_tiles:
+    print(f"No TIFF files found in {DEM_FOLDER}")
+    exit()
 
 # 2. Open and merge
 src_files_to_mosaic = []
@@ -24,7 +30,8 @@ out_meta.update({
     "transform": out_trans
 })
 
-with rasterio.open(r"D:\UHI_Project\data_raw\srtm_dem_30m.tif", "w", **out_meta) as dest:
+out_path = os.path.join(OUTPUT_FOLDER, OUTPUT_FILENAME)
+with rasterio.open(out_path, "w", **out_meta) as dest:
     dest.write(mosaic)
 
-print(" DEM tiles merged into 'srtm_dem_30m.tif'")
+print(f" DEM tiles merged into '{out_path}'")
