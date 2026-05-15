@@ -72,7 +72,6 @@ data/
 *.npy
 *.pth
 data_processed/patches/
-*.png
 *.jpg
 *.pdf
 
